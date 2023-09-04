@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Local TTS by Swolekat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&family=Rubik+Glitch&display=swap" rel="stylesheet">
+    <style>
+        *, *:before, *:after {
+            box-sizing: border-box;
+            font-family: 'Roboto', sans-serif;
+        }
+
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        body {
+            background: #261949;
+            padding: 20px;
+        }
+
+        .content {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            width: 100%;
+        }
+
+        .header {
+            font-family: 'Rubik Glitch', cursive;
+            color: #fff;
+            font-size: 72px;
+            text-shadow: 10px 10px 0 rgba(0,0,0,0.75);
+        }
+
+        .messages {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: end;
+            overflow: auto;
+        }
+
+        .message {
+            background: #4c308d;
+            color: #fff;
+            font-size: 16px;
+            padding: 5px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+
+        .input-wrapper {
+
+        }
+
+        input {
+            font-size: 24px;
+            color: #fff;
+            background: #000;
+            padding: 10px;
+            width: 100%;
+            display: block;
+            margin-top: 20px;
+        }
+
+
+    </style>
+</head>
+<body>
+    <div class="content">
+        <div class="header">
+            Local TTS
+        </div>
+        <div class="messages" id="messages">
+
+        </div>
+        <div class="input-wrapper" autofocus>
+            <input type="text" placeholder="What do you want to say?" id="input">
+        </div>
+    </div>
+    <script>
+        // you will need to get this from the streamelements api.
+        const APIKEY = '';
+        // You can get the list of voices from streamelements in the alerts section
+        const voice = 'Mizuki';
+        // choose something you think will be unique
+        const captionNinjaRoom = '';
+        // change the volume how you'd like
+        const volume = 1;
+
+        // Captioning section
+        let socket = new WebSocket("wss://api.caption.ninja:443");
+        let streamNinjaMessageId = 0;
+        const sendMessageToCaptionNinja = (message) => {
+            try {
+                socket.send(JSON.stringify({"msg": true, "final": message, "id": streamNinjaMessageId}));
+                streamNinjaMessageId++;
+            } catch (ex) {
+                console.error("Encountered an error with sending message to the server.", ex);
+            }
+        }
+
+        const captionBySentence = (message) => {
+            const sentences = message.replace(/([.?!*~])\s*(?=[A-Z])/g, "$1|").split("|");
+            let time = 0;
+            sentences.forEach(sentence => {
+                const nextTime = sentence.length * 87;
+                setTimeout(() => {
+                    sendMessageToCaptionNinja(sentence);
+                }, time);
+                time += nextTime;
+            });
+        };
+
+        // tts section
+        let isPlaying = false;
+        let queue = [];
+        let currentAudio;
+        const endedListener = () => {
+            if(queue.length > 0){
+                const nextMessage = queue.pop();
+                sayMassagedMessage(nextMessage);
+            } else {
+                isPlaying = false;
+            }
+        };
+
+        const sayMassagedMessage = (fullMessage) => {
+            if(!fullMessage){
+                return;
+            }
+            isPlaying = true;
+            const url = `http://api.streamelements.com/kappa/v2/speech?voice=${voice}&text=${encodeURI(fullMessage.replace(/&/g, ' and '))}&key=${APIKEY}`;
+            currentAudio = new Audio(url);
+            currentAudio.volume = volume;
+
+            currentAudio.addEventListener('ended', endedListener);
+            try {
+                const playPromise = currentAudio.play();
+                writeMessageToLog(fullMessage);
+                captionBySentence(fullMessage);
+                if(!playPromise){
+                    return;
+                }
+                playPromise.then(() => {
+                    console.log('playing message');
+                }).catch(e => console.log(e));
+            } catch(e) {
+                console.log(e);
+            }
+        };
+
+        //i/o section
+        const input = document.getElementById('input');
+        const messages = document.getElementById('messages');
+
+        const writeMessageToLog = (message) => {
+            const element = document.createElement('div');
+            element.className = 'message';
+            element.innerHTML = message;
+            messages.append(element);
+        };
+
+        const sendMessage = () => {
+            const message = input.value;
+            if(!message){
+                return;
+            }
+            if(isPlaying){
+                queue.unshift(message);
+                input.value = '';
+                input.focus();
+                return;
+            }
+            sayMassagedMessage(message);
+            input.value = '';
+            input.focus();
+        };
+
+
+        // init
+        const init = () => {
+            socket.onclose =  () => {
+                setTimeout( () => {
+                    window.location.reload(true);
+                }, 100);
+            };
+
+            socket.onopen =  () => {
+                socket.send(JSON.stringify({"join": captionNinjaRoom}));
+            }
+
+            input.onkeyup = (e) => {
+                if(e.key === 'Enter'){
+                    sendMessage();
+                }
+            };
+        };
+
+
+        init();
+    </script>
+</body>
+</html>
